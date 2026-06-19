@@ -1,8 +1,10 @@
 # =============================================================================
 # R/config.R
 # Central configuration: paths, constants, broker list, index definitions.
-# Paths auto-resolve: the data folder is found whether it lives INSIDE the app
-# folder or BESIDE it. To force a location, set one of:
+# The data folder MUST live INSIDE the app folder (Price Index excel sheets/,
+# with or without one extra nesting level). The search never walks outside the
+# project, so a stray folder above the app can't shadow the real data.
+# To force a location, set:
 #   options(indexapp.data_dir = ".../folder that holds ICE,Modern,Neon,OneX")
 #   options(indexapp.workbook = ".../broker_classification_validation.xlsx")
 # =============================================================================
@@ -24,24 +26,24 @@ APP_DIR <- getOption("indexapp.app_dir", default = .find_app_dir())
 .BROKER_DIRS <- c("ICE", "Modern", "Neon", "OneX")
 .is_data_dir <- function(p) dir.exists(p) && any(dir.exists(file.path(p, .BROKER_DIRS)))
 
-# ---- Locate the broker-data directory. Works whether it sits inside the app,
-#      beside it, or one level out — and with single or double
-#      "Price Index excel sheets" nesting (or none at all). ----
+# ---- Locate the broker-data directory. Search ONLY inside the app folder.
+#      Handles double-nested "Price Index excel sheets/Price Index excel sheets",
+#      single-level "Price Index excel sheets", or brokers placed directly in
+#      the app or in app/data. Never walks above APP_DIR. ----
 .find_data_dir <- function() {
   opt <- getOption("indexapp.data_dir", default = NA_character_)
   if (!is.na(opt) && .is_data_dir(opt)) return(normalizePath(opt, winslash = "/"))
   pin   <- "Price Index excel sheets"
-  bases <- unique(c(APP_DIR, file.path(APP_DIR, "data"),
-                    dirname(APP_DIR), dirname(dirname(APP_DIR))))
+  bases <- c(APP_DIR, file.path(APP_DIR, "data"))
   cands <- unlist(lapply(bases, function(b) c(file.path(b, pin, pin), file.path(b, pin), b)))
   hit   <- Find(.is_data_dir, cands)
   if (!is.null(hit)) return(normalizePath(hit, winslash = "/"))
-  file.path(dirname(dirname(APP_DIR)), pin, pin)  # sensible default for messages
+  file.path(APP_DIR, pin, pin)  # sensible default for messages
 }
 DATA_DIR      <- .find_data_dir()
-INDEXAPP_ROOT <- dirname(dirname(DATA_DIR))        # kept for compatibility/reference
+INDEXAPP_ROOT <- APP_DIR  # the project IS the app folder — no outside roots
 
-# ---- Locate the classification workbook ----
+# ---- Locate the classification workbook. Search ONLY inside the app folder. ----
 .find_workbook <- function() {
   opt <- getOption("indexapp.workbook", default = NA_character_)
   if (!is.na(opt) && file.exists(opt)) return(normalizePath(opt, winslash = "/"))
@@ -50,8 +52,7 @@ INDEXAPP_ROOT <- dirname(dirname(DATA_DIR))        # kept for compatibility/refe
               "broker_classification_validation.xlsx"),
     file.path(APP_DIR, "broker_classification_validation.xlsx"),
     file.path(DATA_DIR, "broker_classification_validation.xlsx"),
-    file.path(dirname(DATA_DIR), "broker_classification_validation.xlsx"),
-    file.path(dirname(dirname(APP_DIR)), "broker_classification_validation.xlsx")
+    file.path(dirname(DATA_DIR), "broker_classification_validation.xlsx")
   )
   hit <- Find(file.exists, cands)
   if (!is.null(hit)) return(normalizePath(hit, winslash = "/"))

@@ -10,6 +10,9 @@ suppressPackageStartupMessages({
   library(dplyr); library(arrow)
 })
 
+# Allow broker file uploads up to 100 MB (default Shiny limit is 5 MB).
+options(shiny.maxRequestSize = 100 * 1024^2)
+
 # ---- Source the data pipeline + analytics ----
 for (f in c("config", "helpers", "load_reference",
             "normalize_ice", "normalize_modern", "normalize_neon", "normalize_onex",
@@ -80,6 +83,24 @@ ui <- page_navbar(
     helpText(icon("circle-info"), "Index = volume-weighted avg differential to WTI CMA",
              "($/bbl) from physical outright trades inside the trade cycle."),
     div(class = "text-muted small", textOutput("built_at")),
+    hr(),
+    div(class = "small fw-semibold mb-1", "Broker raw files"),
+    div(class = "small text-muted mb-1",
+        "Drop an .xlsx into a broker, then click Rebuild."),
+    do.call(accordion, c(
+      list(id = "raw_files", open = FALSE, class = "raw-files-accordion"),
+      lapply(BROKERS, function(b) {
+        accordion_panel(
+          title = uiOutput(paste0("rawhdr_", b), inline = TRUE),
+          value = b,
+          fileInput(paste0("upload_", b), NULL,
+                    accept = c(".xlsx", ".xls", ".csv"),
+                    buttonLabel = "Browse", placeholder = "No file",
+                    width = "100%"),
+          uiOutput(paste0("rawlist_", b))
+        )
+      })
+    )),
     actionButton("refresh", "Rebuild from broker files", icon = icon("rotate"),
                  class = "btn-outline-primary btn-sm w-100 mt-2")
   ),
@@ -291,6 +312,56 @@ server <- function(input, output, session) {
   })
 
   output$built_at <- renderText(paste("Data built:", format(rv$built, "%Y-%m-%d %H:%M")))
+
+  # ---- Broker raw-file browser & uploader ----
+  # Bumped after every successful upload so the per-broker listings refresh.
+  raw_tick <- reactiveVal(0)
+
+  .raw_files <- function(b) {
+    dir <- file.path(DATA_DIR, BROKER_FOLDER[[b]])
+    if (!dir.exists(dir)) return(character(0))
+    list.files(dir, pattern = "\\.(xlsx|xls|csv)$", ignore.case = TRUE)
+  }
+
+  lapply(BROKERS, function(b) {
+    output[[paste0("rawhdr_", b)]] <- renderUI({
+      raw_tick()
+      n <- length(.raw_files(b))
+      tagList(strong(b), span(class = "text-muted ms-1 small", sprintf("(%d)", n)))
+    })
+
+    output[[paste0("rawlist_", b)]] <- renderUI({
+      raw_tick()
+      files <- .raw_files(b)
+      if (length(files) == 0) {
+        return(div(class = "small text-muted fst-italic", "(no files yet)"))
+      }
+      div(class = "small",
+          div(class = "text-muted mb-1", sprintf("In %s/:", BROKER_FOLDER[[b]])),
+          tags$ul(class = "mb-0 ps-3",
+                  lapply(sort(files), function(f) tags$li(f))))
+    })
+
+    observeEvent(input[[paste0("upload_", b)]], {
+      inp <- input[[paste0("upload_", b)]]
+      req(inp)
+      dir <- file.path(DATA_DIR, BROKER_FOLDER[[b]])
+      dir.create(dir, recursive = TRUE, showWarnings = FALSE)
+      dest <- file.path(dir, inp$name)
+      replaced <- file.exists(dest)
+      ok <- tryCatch({ file.copy(inp$datapath, dest, overwrite = TRUE); TRUE },
+                     error = function(e) {
+                       showNotification(paste("Save failed:", conditionMessage(e)),
+                                        type = "error", duration = 8); FALSE
+                     })
+      if (isTRUE(ok)) {
+        msg <- if (replaced) sprintf("Replaced %s in %s.", inp$name, b)
+               else sprintf("Saved %s to %s. Click Rebuild to refresh data.", inp$name, b)
+        showNotification(msg, type = "message", duration = 5)
+        raw_tick(raw_tick() + 1)
+      }
+    })
+  })
 
   # Keep selectors in sync with the data + index group
   observe({
