@@ -1,0 +1,137 @@
+# scripts/00_packages.R
+
+# ============================================================
+# Project package loader
+# Checks packages, loads packages, and writes package version logs
+# ============================================================
+
+required_packages <- c(
+  "dplyr",
+  "purrr",
+  "janitor",
+  "tidyverse",
+  "readxl",
+  "readr",
+  "janitor",
+  "lubridate",
+  "fs",
+  "writexl",
+  "arrow",
+  "DBI",
+  "duckdb",
+  "here",
+  "stringr"
+)
+
+
+# ------------------------------------------------------------
+# 1. Check missing packages
+# ------------------------------------------------------------
+
+installed_packages <- rownames(installed.packages())
+
+missing_packages <- required_packages[
+  !required_packages %in% installed_packages
+]
+
+if (length(missing_packages) > 0) {
+  stop(
+    paste0(
+      "Missing required packages: ",
+      paste(missing_packages, collapse = ", "),
+      "\n\nInstall them manually with:\n",
+      "install.packages(c(",
+      paste0('"', missing_packages, '"', collapse = ", "),
+      "))"
+    ),
+    call. = FALSE
+  )
+}
+
+# ------------------------------------------------------------
+# 2. Load packages
+# ------------------------------------------------------------
+
+invisible(
+  lapply(
+    required_packages,
+    function(pkg) {
+      suppressPackageStartupMessages(
+        library(pkg, character.only = TRUE)
+      )
+    }
+  )
+)
+
+# ------------------------------------------------------------
+# 3. Create package version table
+# This is an R object, not a manual file.
+# ------------------------------------------------------------
+
+package_versions <- tibble::tibble(
+  package = required_packages,
+  version = vapply(
+    required_packages,
+    function(pkg) as.character(utils::packageVersion(pkg)),
+    character(1)
+  ),
+  run_time = as.character(Sys.time()),
+  r_version = paste(R.version$major, R.version$minor, sep = "."),
+  platform = R.version$platform,
+  user = Sys.info()[["user"]],
+  computer = Sys.info()[["nodename"]]
+)
+
+# ------------------------------------------------------------
+# 4. Save package version logs
+# The folder and CSV files are created automatically.
+# ------------------------------------------------------------
+
+project_root <- here::here()
+
+logs_dir <- file.path(
+  project_root,
+  "data",
+  "processed",
+  "logs",
+  "package_versions"
+)
+
+fs::dir_create(logs_dir)
+
+user_name <- Sys.info()[["user"]]
+computer_name <- Sys.info()[["nodename"]]
+
+safe_user_name <- gsub("[^A-Za-z0-9_\\-]", "_", user_name)
+safe_computer_name <- gsub("[^A-Za-z0-9_\\-]", "_", computer_name)
+
+run_stamp <- format(Sys.time(), "%Y%m%d_%H%M%S")
+
+run_log_file <- file.path(
+  logs_dir,
+  paste0(
+    safe_user_name,
+    "_",
+    safe_computer_name,
+    "_",
+    run_stamp,
+    ".csv"
+  )
+)
+
+current_log_file <- file.path(
+  logs_dir,
+  paste0(
+    safe_user_name,
+    "_",
+    safe_computer_name,
+    "_current.csv"
+  )
+)
+
+readr::write_csv(package_versions, run_log_file)
+readr::write_csv(package_versions, current_log_file)
+
+message("Project packages loaded successfully.")
+message("Package version run log saved to: ", run_log_file)
+message("Current package version log saved to: ", current_log_file)
