@@ -1,41 +1,74 @@
 # =============================================================================
 # R/config.R
 # Central configuration: paths, constants, broker list, index definitions.
-# Edit INDEXAPP_ROOT (or set options(indexapp.root=...)) if you move the project.
+# Paths auto-resolve: the data folder is found whether it lives INSIDE the app
+# folder or BESIDE it. To force a location, set one of:
+#   options(indexapp.data_dir = ".../folder that holds ICE,Modern,Neon,OneX")
+#   options(indexapp.workbook = ".../broker_classification_validation.xlsx")
 # =============================================================================
 
-# ---- Locate the project root (the "appproject" folder that holds the data) ----
-.find_root <- function() {
-  explicit <- getOption("indexapp.root", default = NA_character_)
-  if (!is.na(explicit) && dir.exists(explicit)) return(normalizePath(explicit, winslash = "/"))
-
+# ---- Locate the app directory (the folder holding app.R + R/) ----
+.find_app_dir <- function() {
   d <- normalizePath(getwd(), winslash = "/", mustWork = FALSE)
-  for (i in seq_len(7)) {
-    if (dir.exists(file.path(d, "Price Index excel sheets"))) return(d)
+  for (i in seq_len(8)) {
+    if (file.exists(file.path(d, "app.R")) && dir.exists(file.path(d, "R"))) return(d)
     parent <- dirname(d)
     if (identical(parent, d)) break
     d <- parent
   }
-  # Fallback to the known location on this machine.
-  "C:/Users/aftik/Documents/Projects/index_app_2/appproject"
+  normalizePath(getwd(), winslash = "/", mustWork = FALSE)
 }
+APP_DIR <- getOption("indexapp.app_dir", default = .find_app_dir())
 
-INDEXAPP_ROOT <- .find_root()
+# A directory "is" the broker-data dir when it directly holds the broker folders.
+.BROKER_DIRS <- c("ICE", "Modern", "Neon", "OneX")
+.is_data_dir <- function(p) dir.exists(p) && any(dir.exists(file.path(p, .BROKER_DIRS)))
 
-# ---- Key paths ----
-DATA_DIR <- file.path(INDEXAPP_ROOT, "Price Index excel sheets", "Price Index excel sheets")
-
-WORKBOOK <- file.path(
-  INDEXAPP_ROOT, "Index_App", "Index_App", "data", "reference",
-  "classification_validation", "broker_classification_validation.xlsx"
-)
-if (!file.exists(WORKBOOK)) {
-  WORKBOOK <- file.path(INDEXAPP_ROOT, "broker_classification_validation.xlsx")
+# ---- Locate the broker-data directory. Works whether it sits inside the app,
+#      beside it, or one level out — and with single or double
+#      "Price Index excel sheets" nesting (or none at all). ----
+.find_data_dir <- function() {
+  opt <- getOption("indexapp.data_dir", default = NA_character_)
+  if (!is.na(opt) && .is_data_dir(opt)) return(normalizePath(opt, winslash = "/"))
+  pin   <- "Price Index excel sheets"
+  bases <- unique(c(APP_DIR, file.path(APP_DIR, "data"),
+                    dirname(APP_DIR), dirname(dirname(APP_DIR))))
+  cands <- unlist(lapply(bases, function(b) c(file.path(b, pin, pin), file.path(b, pin), b)))
+  hit   <- Find(.is_data_dir, cands)
+  if (!is.null(hit)) return(normalizePath(hit, winslash = "/"))
+  file.path(dirname(dirname(APP_DIR)), pin, pin)  # sensible default for messages
 }
+DATA_DIR      <- .find_data_dir()
+INDEXAPP_ROOT <- dirname(dirname(DATA_DIR))        # kept for compatibility/reference
 
-CACHE_DIR <- file.path(INDEXAPP_ROOT, "Index_App", "Index_App", "data", "processed", "cache")
+# ---- Locate the classification workbook ----
+.find_workbook <- function() {
+  opt <- getOption("indexapp.workbook", default = NA_character_)
+  if (!is.na(opt) && file.exists(opt)) return(normalizePath(opt, winslash = "/"))
+  cands <- c(
+    file.path(APP_DIR, "data", "reference", "classification_validation",
+              "broker_classification_validation.xlsx"),
+    file.path(APP_DIR, "broker_classification_validation.xlsx"),
+    file.path(DATA_DIR, "broker_classification_validation.xlsx"),
+    file.path(dirname(DATA_DIR), "broker_classification_validation.xlsx"),
+    file.path(dirname(dirname(APP_DIR)), "broker_classification_validation.xlsx")
+  )
+  hit <- Find(file.exists, cands)
+  if (!is.null(hit)) return(normalizePath(hit, winslash = "/"))
+  cands[1]
+}
+WORKBOOK <- .find_workbook()
+
+# ---- Cache always lives inside the app's data folder (writable, travels w/ app) ----
+CACHE_DIR  <- file.path(APP_DIR, "data", "processed", "cache")
 CACHE_FILE <- file.path(CACHE_DIR, "combined_normalized.parquet")
 QA_FILE    <- file.path(CACHE_DIR, "build_qa.rds")
+
+# ---- Non-fatal heads-up if the broker data wasn't found anywhere ----
+if (!.is_data_dir(DATA_DIR))
+  warning("Broker data (folders ICE/Modern/Neon/OneX) not found near the app at '",
+          APP_DIR, "'. Set options(indexapp.data_dir='<path to that folder>').",
+          call. = FALSE)
 
 # ---- Constants ----
 BBL_PER_M3 <- 6.28981077

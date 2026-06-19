@@ -22,6 +22,31 @@ The app reads a cached dataset at `data/processed/cache/combined_normalized.parq
 Drop new broker files into `Price Index excel sheets/Price Index excel sheets/<Broker>/`
 and click **"Rebuild from broker files"** in the sidebar (or delete the cache and reload).
 
+## Moving to another machine
+
+Paths **auto-resolve** — there are no hard-coded user folders in `R/config.R`. The app
+finds the broker data whether the `Price Index excel sheets` folder sits **inside** the
+project (e.g. `Index_App/Index_App/Price Index excel sheets/…`) or **beside** it, with
+single or double nesting. It locates the folder by looking for one that contains the
+`ICE / Modern / Neon / OneX` subfolders. So to move machines:
+
+1. Copy the whole project folder (with the data and `broker_classification_validation.xlsx`).
+2. Install R 4.5+ and the packages above.
+3. From the app folder run `shiny::runApp('.')` — that's it.
+
+If your data lives somewhere unusual, force it in your R session before launching:
+
+```r
+options(indexapp.data_dir = "C:/path/to/folder that holds ICE,Modern,Neon,OneX")
+options(indexapp.workbook = "C:/path/to/broker_classification_validation.xlsx")
+```
+
+> The cache and `build_qa.rds` always live under `data/processed/cache/` inside the app,
+> so they travel with it. Re-run **"Rebuild from broker files"** once on the new machine
+> if the data changed. The only file that still holds absolute paths is
+> `.claude/launch.json` (the optional launcher) — edit its R-exe and app paths, or just
+> use `shiny::runApp('.')`.
+
 ## Tabs
 
 | Tab | Shows |
@@ -57,7 +82,7 @@ To change the **1a** broker set, edit `INDEX_DEFINITIONS$\`1a\`` in `R/config.R`
 
 ## Notes / fixes applied vs. the original `scripts_02`
 
-* Paths are now project-relative (auto-detected) instead of a hard-coded OneDrive path.
+* Paths auto-resolve (data found inside **or** beside the project; no hard-coded user folder) — see "Moving to another machine".
 * File reads are wrapped so one bad file can't abort a broker's whole run.
 * Trade-cycle flag standardized to `in_trade_cycle` across the pipeline.
 * All four brokers share one schema; real `Location` is preserved (Edmonton/Kerrobert/…).
