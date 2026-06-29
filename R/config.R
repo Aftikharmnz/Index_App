@@ -82,7 +82,7 @@ BROKER_RULE_SHEET <- c(ICE = "ICE_Rules", Modern = "Modern_Rules",
                        Neon = "Marex_Rules", OneX = "OneX_Rules")
 
 # ---- Index groups currently in scope (extensible: add "SYN","WCS","CONDENSATE") ----
-ACTIVE_INDEX_GROUPS <- c("SW")
+ACTIVE_INDEX_GROUPS <- c("SW", "SYN")
 
 # ---- Named index definitions: which brokers compose each published index ----
 # comm = all four brokers; 1a = ICE + OneX (per user). Edit freely.
