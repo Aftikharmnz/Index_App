@@ -66,8 +66,39 @@ plot_cycle_development <- function(daily) {
 }
 
 # ---- Volume seasonality across trade cycles ----
-GRADE_COLORS <- c(PCE = "#1f77b4", PEM = "#ff7f0e", MSW = "#2ca02c", CSW = "#d62728",
-                  FED = "#9467bd", RBW = "#8c564b", MSE = "#e377c2", MSY = "#17becf")
+# Curated grade colours. SW grades + SYN grades; any grade not listed here gets a
+# stable, distinct colour from grade_color()'s fallback (never grey).
+GRADE_COLORS <- c(# SW
+                  PCE = "#1f77b4", PEM = "#ff7f0e", MSW = "#2ca02c", CSW = "#d62728",
+                  FED = "#9467bd", RBW = "#8c564b", MSE = "#e377c2", MSY = "#17becf",
+                  # SYN
+                  SYN = "#1f77b4", CNS = "#ff7f0e", SSP = "#2ca02c", HSC = "#d62728",
+                  SYN_EIL = "#9467bd")
+
+# Fallback palette (distinct from collisions within a typical group) for grades
+# that aren't in GRADE_COLORS — assigned deterministically by name so a grade
+# keeps the same colour across every chart and session.
+GRADE_FALLBACK_PAL <- c("#8c564b", "#e377c2", "#bcbd22", "#17becf", "#aec7e8",
+                        "#ffbb78", "#98df8a", "#ff9896", "#c5b0d5", "#c49c94")
+
+# Stable colour for one or more grades (curated first, else name-hash fallback).
+grade_color <- function(g) {
+  vapply(as.character(g), function(x) {
+    if (is.na(x) || x == "") return("#888888")
+    c0 <- GRADE_COLORS[x]
+    if (!is.na(c0)) return(unname(c0))
+    GRADE_FALLBACK_PAL[(sum(utf8ToInt(x)) %% length(GRADE_FALLBACK_PAL)) + 1L]
+  }, character(1), USE.NAMES = FALSE)
+}
+
+# Colour for a segment that may be a broker OR a grade (used by stacked charts).
+seg_color <- function(s, seg_type) {
+  if (identical(seg_type, "broker")) {
+    c0 <- BROKER_COLORS[as.character(s)]
+    return(unname(ifelse(is.na(c0), "#888888", c0)))
+  }
+  grade_color(s)
+}
 SEASON_COLORS <- c(Winter = "#4c78a8", Spring = "#54a24b", Summer = "#e45756", Fall = "#f58518")
 
 season_of <- function(dm) {
@@ -165,7 +196,6 @@ plot_seasonality_bar <- function(season_seg, x = "day", y = "daily_raw", months 
   da <- d %>% group_by(delivery_month, base, seg) %>%
     summarise(val = ag(.data[[cfg$yvar]]), .groups = "drop")
   segs <- sort(unique(da$seg))
-  pal <- if (seg_type == "broker") BROKER_COLORS else GRADE_COLORS
   pctmode <- y %in% c("daily_pct", "cum_pct")
   show_lab <- format(show, "%b %Y")
   days <- sort(unique(da$base))
@@ -190,7 +220,7 @@ plot_seasonality_bar <- function(season_seg, x = "day", y = "daily_raw", months 
     dg <- da[da$seg == s, ]
     p <- p %>% add_bars(
       x = dg$cat, y = dg$val, name = s,
-      marker = list(color = unname(if (!is.na(pal[s])) pal[s] else "#888"),
+      marker = list(color = seg_color(s, seg_type),
                     line = list(color = "white", width = 1)),
       customdata = format(dg$delivery_month, "%b %Y"),
       hovertemplate = paste0("%{customdata} · ", s, ": ",
@@ -251,11 +281,10 @@ plot_intraday <- function(prof) {
                   ceiling((max(total$tod) + bw) / 60) * 60, by = 60)
   p <- plot_ly()
   if (nrow(prof$byseg) > 0) {
-    pal <- if (identical(prof$by, "broker")) BROKER_COLORS else GRADE_COLORS
     for (s in sort(unique(prof$byseg$seg))) {
       dg <- prof$byseg[prof$byseg$seg == s, ]
       p <- p %>% add_bars(x = dg$tod + bw / 2, y = dg$vol_m3, name = s, width = bw * 0.9,
-                          marker = list(color = unname(if (!is.na(pal[s])) pal[s] else "#888"),
+                          marker = list(color = seg_color(s, prof$by),
                                         line = list(color = "white", width = 0.5)),
                           customdata = fmt_tod(dg$tod),
                           hovertemplate = paste0("%{customdata} · ", s, ": %{y:,.0f} m³<extra></extra>"))
@@ -307,7 +336,7 @@ plot_candles <- function(ohlc) {
   } else {
     for (g in grades) {
       dg <- ohlc[ohlc$grade == g, ]; dg <- dg[order(dg$bkt), ]
-      col <- unname(if (!is.na(GRADE_COLORS[g])) GRADE_COLORS[g] else "#888")
+      col <- grade_color(g)
       p <- p %>%
         add_lines(data = dg, x = ~bkt, y = ~close, name = g,
                   line = list(color = col, width = 2),

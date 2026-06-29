@@ -282,6 +282,16 @@ ui <- page_navbar(
     "Data & QA", icon = icon("table"),
     card(card_header("Coverage by broker"), DTOutput("t_coverage")),
     card(full_screen = TRUE,
+         card_header(div(
+           span(icon("triangle-exclamation"), " Unparseable delivery months ",
+                tags$span(class = "badge bg-warning text-dark", textOutput("n_unparsed", inline = TRUE))),
+           downloadButton("dl_unparsed", "CSV", class = "btn-sm float-end"))),
+         div(class = "small text-muted px-1 pb-1",
+             "Physical trades with a grade but a period that didn't resolve to a month ",
+             "(e.g. quarterly strips like \"Q3 25\"). These are excluded from every index — ",
+             "fix the period at source or extend the parser to include them."),
+         DTOutput("t_unparsed")),
+    card(full_screen = TRUE,
          card_header(div("Normalized trades",
                          downloadButton("dl_data", "CSV", class = "btn-sm float-end"))),
          DTOutput("t_data"))
@@ -560,7 +570,9 @@ server <- function(input, output, session) {
     if (nrow(d) == 0) return(empty_plot())
     s <- d %>% group_by(delivery_month, grade) %>%
       summarise(vol = sum(qty_m3, na.rm = TRUE), .groups = "drop")
-    plot_ly(s, x = ~delivery_month, y = ~vol, color = ~grade, type = "bar") %>%
+    gl <- sort(unique(s$grade))
+    plot_ly(s, x = ~delivery_month, y = ~vol, color = ~factor(grade, levels = gl),
+            colors = grade_color(gl), type = "bar") %>%
       .base_layout(ylab = "Volume (m³)") %>% layout(barmode = "stack")
   })
 
@@ -582,6 +594,24 @@ server <- function(input, output, session) {
                            "Component trades", "In-cycle components", "No rule match (incl. non-SW)"),
               options = list(dom = "t", pageLength = 10))
   })
+  unparsed_tbl <- reactive(unparsed_month_trades(dat()))
+  output$n_unparsed <- renderText(nrow(unparsed_tbl()))
+  output$t_unparsed <- renderDT({
+    u <- unparsed_tbl()
+    if (nrow(u) == 0)
+      return(datatable(tibble(Message = "None — every physical trade resolved to a delivery month."),
+                       rownames = FALSE, options = list(dom = "t")))
+    datatable(u %>% transmute(Broker = broker, `Trade ID` = trade_id, Date = exec_date,
+                              Group = index_group, Grade = grade, Instrument = instrument,
+                              Period = period, Price = round(price, 3), `Qty m³` = qty_m3,
+                              `Source file` = source_file),
+              rownames = FALSE, filter = "top",
+              options = list(pageLength = 15, scrollX = TRUE, dom = "tip"))
+  })
+  output$dl_unparsed <- downloadHandler(
+    filename = function() "unparseable_delivery_months.csv",
+    content = function(file) write.csv(unparsed_tbl(), file, row.names = FALSE))
+
   output$t_data <- renderDT({
     d <- dat() %>%
       filter(index_group == input$ig) %>%

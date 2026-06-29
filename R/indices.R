@@ -29,6 +29,20 @@ vwap <- function(price, qty) {
   sum(price * qty, na.rm = TRUE) / s
 }
 
+# ---- QA: physical trades whose delivery month couldn't be parsed ----
+# These are real "Trade" rows with a grade + a non-empty period that didn't
+# resolve to a MON-YY delivery month (e.g. quarterly strips "Q3 25"), so they
+# are silently excluded from every index. Surfaced so they can be fixed at source.
+unparsed_month_trades <- function(combined) {
+  combined %>%
+    dplyr::filter(itf %in% "Trade", !is.na(grade),
+                  is.na(delivery_month),
+                  !is.na(period), trimws(period) != "") %>%
+    dplyr::transmute(broker, trade_id, exec_date, index_group, grade,
+                     instrument, period, price, qty_m3, source_file) %>%
+    dplyr::arrange(broker, period, grade)
+}
+
 # ---- Available dimensions (for UI selectors) ----
 available_grades <- function(combined, ig = "SW") {
   combined %>%
